@@ -16,33 +16,51 @@ import json
 mpl.rcParams['figure.figsize'] = (8, 6)
 mpl.rcParams['axes.grid'] = False
 
-#columns = ['open', 'high', 'low', 'close', 'volume']
-
-#def normalizeData(data):
-#  df = pd.DataFrame(data, columns=column)
-#  df_mean = df.mean()
-#  df_std = df.std()
-#  return (df - df_mean) / df_std
-
 #with open("data.json", "r") as read_file:
 #  data = json.load(read_file)
 #  data = [[np.array([kline[1], kline[2], kline[3], kline[4], kline[5]]).astype(float) for kline in batch] for batch in data]
 #  np.random.shuffle(data)
 #  data = list(map(normalizeData, data))
 
-data = []
-for file in os.listdir("./data"):
-  df = pd.read_csv(os.path.join("./data", file), usecols=[3,4,5,6], skiprows=1)
-  df_mean = df.mean()
-  df_std = df.std()
-  data.append((df - df_mean) / df_std)
+#for file in os.listdir("./data"):
+df = pd.read_csv(os.path.join("./data", 'Binance_BTCUSDT_1h.csv'), usecols=[3], skiprows=1)
+df = df[::-1].reset_index(drop=True)
 
-data = data[0:10]
-n = len(data)
-train_df = data[0:int(n*0.7)]
-val_df = data[int(n*0.7):int(n*0.9)]
-test_df = data[int(n*0.9):]
-num_features = data[0].shape[1]
+ema10 = df.ewm(span=10, adjust=False).mean()
+ema20 = df.ewm(span=20, adjust=False).mean()
+ema50 = df.ewm(span=50, adjust=False).mean()
+ema100 = df.ewm(span=100, adjust=False).mean()
+ema200 = df.ewm(span=200, adjust=False).mean()
+df = pd.DataFrame({
+  'ema10': ema10['open'],
+  'ema20': ema20['open'],
+  'ema50': ema50['open'],
+  'ema100': ema100['open'],
+  'ema200': ema100['open'],
+})
+plt.plot(df)
+plt.title('data')
+plt.ylabel('price')
+plt.xlabel('time')
+plt.show()
+
+span = 200
+ma = df.ewm(span, adjust=False).mean()
+std = df.ewm(span, adjust=False).std()
+df = (df - ma) / std
+df.dropna(inplace=True)
+
+plt.plot(df)
+plt.title('data')
+plt.ylabel('normalized price')
+plt.xlabel('time')
+plt.show()
+
+num_features = df.shape[1]
+n = len(df)
+train_df = [df[0:int(n*0.7)]]
+val_df = [df[int(n*0.7):int(n*0.9)]]
+test_df = [df[int(n*0.9):]]
 print(n, num_features)
 
 class WindowGenerator():
@@ -60,7 +78,7 @@ class WindowGenerator():
       self.label_columns_indices = {name: i for i, name in
                                     enumerate(label_columns)}
     self.column_indices = {name: i for i, name in
-                           enumerate(data[0].columns)}
+                           enumerate(train_df[0].columns)}
 
     # Work out the window parameters.
     self.input_width = input_width
@@ -82,16 +100,16 @@ class WindowGenerator():
         f'Label indices: {self.label_indices}',
         f'Label column name(s): {self.label_columns}'])
 
-def plot(self, model=None, plot_col='open', max_subplots=3):
+def plot(self, model=None, plot_col='ema10', max_subplots=5):
   inputs, labels = next(iter(self.test))
-  plt.figure(figsize=(12, 8))
+  plt.figure(figsize=(12, max_subplots * 3))
   plot_col_index = self.column_indices[plot_col]
   max_n = min(max_subplots, len(inputs))
   for n in range(max_n):
-    plt.subplot(3, 1, n+1)
+    plt.subplot(max_subplots, 1, n+1)
     plt.ylabel(f'{plot_col} [normed]')
     plt.plot(self.input_indices, inputs[n, :, plot_col_index],
-            label='Inputs', marker='.', zorder=-10)
+            label='Inputs', zorder=-10)
 
     if self.label_columns:
       label_col_index = self.label_columns_indices.get(plot_col, None)
@@ -101,13 +119,12 @@ def plot(self, model=None, plot_col='open', max_subplots=3):
     if label_col_index is None:
       continue
 
-    plt.scatter(self.label_indices, labels[n, :, label_col_index],
-                edgecolors='k', label='Labels', c='#2ca02c', s=64)
+    plt.plot(self.label_indices, labels[n, :, label_col_index],
+                label='Labels', c='#2ca02c')
     if model is not None:
       predictions = model(inputs)
-      plt.scatter(self.label_indices, predictions[n, :, label_col_index],
-                  marker='X', edgecolors='k', label='Predictions',
-                  c='#ff7f0e', s=64)
+      plt.plot(self.label_indices, predictions[n, :, label_col_index],
+                  label='Predictions', c='#ff7f0e')
 
     if n == 0:
       plt.legend()
@@ -140,7 +157,7 @@ def make_dataset(self, data):
         data=ds,
         targets=None,
         sequence_length=self.total_window_size,
-        sequence_stride=1,
+        sequence_stride=10,
         shuffle=True,
         batch_size=32)
 
@@ -170,18 +187,18 @@ WindowGenerator.val = val
 WindowGenerator.test = test
 
 OUT_STEPS = 100
-multi_window = WindowGenerator(input_width=500,
+multi_window = WindowGenerator(input_width=800,
                                label_width=OUT_STEPS,
                                shift=OUT_STEPS)
 
-MAX_EPOCHS = 5
+MAX_EPOCHS = 20
 
 def compile_and_fit(model, window, patience=2):
   early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
                                                     patience=patience,
                                                     mode='min')
   model.compile(loss=tf.losses.MeanSquaredError(),
-                optimizer=tf.optimizers.Adam(),
+                optimizer=tf.optimizers.Adam(learning_rate=0.0001),
                 metrics=[tf.metrics.MeanAbsoluteError()])
   history = model.fit(window.train, epochs=MAX_EPOCHS,
                       validation_data=window.val,
@@ -192,21 +209,41 @@ multi_val_performance = {}
 multi_performance = {}
 
 multi_lstm_model = tf.keras.Sequential()
-multi_lstm_model.add(tf.keras.layers.LSTM(32, return_sequences=False))
-multi_lstm_model.add(tf.keras.layers.Dense(OUT_STEPS*num_features))
+for i in range(0, 0):
+  multi_lstm_model.add(tf.keras.layers.LSTM(32, return_sequences=True,
+                          recurrent_dropout=0.2))
+multi_lstm_model.add(tf.keras.layers.LSTM(32, return_sequences=False,
+                          recurrent_dropout=0))
+multi_lstm_model.add(tf.keras.layers.Dense(OUT_STEPS*num_features,
+                          kernel_initializer=tf.initializers.zeros()))
 multi_lstm_model.add(tf.keras.layers.Reshape([OUT_STEPS, num_features]))
 
 print('compile_and_fit')
 history = compile_and_fit(multi_lstm_model, multi_window)
 
-IPython.display.clear_output()
+plt.plot(history.history['mean_absolute_error'])
+plt.plot(history.history['val_mean_absolute_error'])
+plt.title('model accuracy')
+plt.ylabel('accuracy')
+plt.xlabel('epoch')
+plt.legend(['train', 'val'], loc='upper left')
+plt.show()
+
+plt.plot(history.history['loss'])
+plt.plot(history.history['val_loss'])
+plt.title('model loss')
+plt.ylabel('loss')
+plt.xlabel('epoch')
+plt.legend(['train', 'val'], loc='upper left')
+plt.show()
 
 print('validation')
 multi_val_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.val)
 print('test')
 multi_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.test, verbose=0)
-multi_window.plot(multi_lstm_model)
+for col in train_df[0].columns:
+  multi_window.plot(multi_lstm_model, plot_col=col)
 
-tfjs.converters.save_keras_model(multi_lstm_model, 'model')
+#tfjs.converters.save_keras_model(multi_lstm_model, 'model')
 print('done')
 # %%
