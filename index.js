@@ -1,16 +1,16 @@
-const VALUE_TO_PREDICT = 100
+const VALUE_TO_PREDICT = 1000
 let data
 
 async function run() {
   const res = await fetch(`data.json`)
-  data = [(await res.json())[5].map(kline => {
+  data = (await res.json())[0].map(kline => {
     return [
       parseFloat(kline[1]),
       parseFloat(kline[2]),
       parseFloat(kline[3]),
       parseFloat(kline[4])
     ]
-  })]
+  })
 
   /*const tensorData = convertToTensor(data)
   const {inputs, outputs} = tensorData
@@ -25,29 +25,31 @@ async function run() {
 document.addEventListener('DOMContentLoaded', run)
 
 function testModel(model, inputData) {
-  const inputTensor = tf.tensor3d(inputData.map(d => d.slice(0, d.length - VALUE_TO_PREDICT)), [data.length, data[0].length - VALUE_TO_PREDICT, data[0][0].length])
-  const moments = tf.moments(inputTensor, 1, true)
-  const mean = moments.mean
-  const std = moments.variance.sqrt()
+  const inputTensor = tf.tensor3d([inputData.slice(0, inputData.length - VALUE_TO_PREDICT)], [1, inputData.length - VALUE_TO_PREDICT, inputData[0].length])
+  const inputMax = inputTensor.max(1, true)
+  const inputMin = inputTensor.min(1, true)
+  const inputDiff = inputMax.sub(inputMin)
+  const inputMean = inputTensor.mean(1, true)
   const normalizedInputs = inputTensor
-    .sub(mean)
-    .div(std)
-  const [preds] = tf.tidy(() => {
+    .sub(inputMean)
+    .div(inputDiff)
+
+  const [unNormPreds] = tf.tidy(() => {
     const preds = model.predict(normalizedInputs)
 
     // Un-normalize the data
     const unNormPreds = preds
-      .mul(std)
-      .add(mean)
+      .mul(inputDiff)
+      .add(inputMean)
     
     return [unNormPreds.arraySync()]
   })
 
-  const predictedPoints = preds[0].map((val, i) => {
-    return {x: data[0].length - VALUE_TO_PREDICT + i, y: val[0]}
+  const predictedPoints = unNormPreds[0].map((val, i) => {
+    return {x: inputData.length - VALUE_TO_PREDICT + i, y: val[0]}
   })
   
-  const originalPoints = inputData[0].map((d, i) => ({
+  const originalPoints = inputData.map((d, i) => ({
     x: i, y: d[0],
   }))
   
@@ -62,7 +64,6 @@ function testModel(model, inputData) {
     }
   )
 }
-
 
 /* training (unused) */
 

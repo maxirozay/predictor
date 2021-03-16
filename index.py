@@ -23,38 +23,38 @@ mpl.rcParams['axes.grid'] = False
 #  data = list(map(normalizeData, data))
 
 #for file in os.listdir("./data"):
-df = pd.read_csv(os.path.join("./data", 'Binance_BTCUSDT_1h.csv'), usecols=[3], skiprows=1)
+df = pd.read_csv(os.path.join("./data", 'Binance_BTCUSDT_1h.csv'), usecols=[3,4,5,6], skiprows=1)
 df = df[::-1].reset_index(drop=True)
 
-ema10 = df.ewm(span=10, adjust=False).mean()
-ema20 = df.ewm(span=20, adjust=False).mean()
-ema50 = df.ewm(span=50, adjust=False).mean()
-ema100 = df.ewm(span=100, adjust=False).mean()
-ema200 = df.ewm(span=200, adjust=False).mean()
-df = pd.DataFrame({
-  'ema10': ema10['open'],
-  'ema20': ema20['open'],
-  'ema50': ema50['open'],
-  'ema100': ema100['open'],
-  'ema200': ema100['open'],
-})
+df = np.log(df.ewm(span=10, adjust=False).mean())
+# ema20 = df.ewm(span=20, adjust=False).mean()
+# ema50 = df.ewm(span=50, adjust=False).mean()
+# ema100 = df.ewm(span=100, adjust=False).mean()
+# ema200 = df.ewm(span=200, adjust=False).mean()
+# df = pd.DataFrame({
+#   'ema10': ema10['open'],
+#   # 'ema20': ema20['open'],
+#   # 'ema50': ema50['open'],
+#   # 'ema100': ema100['open'],
+#   # 'ema200': ema100['open'],
+# })
 plt.plot(df)
 plt.title('data')
 plt.ylabel('price')
 plt.xlabel('time')
 plt.show()
 
-span = 200
-ma = df.ewm(span, adjust=False).mean()
-std = df.ewm(span, adjust=False).std()
-df = (df - ma) / std
-df.dropna(inplace=True)
+# span = 200
+# ma = df.ewm(span, adjust=False).mean()
+# std = df.ewm(span, adjust=False).std()
+# df = (df - ma) / std
+# df.dropna(inplace=True)
 
-plt.plot(df)
-plt.title('data')
-plt.ylabel('normalized price')
-plt.xlabel('time')
-plt.show()
+# plt.plot(df)
+# plt.title('data')
+# plt.ylabel('normalized price')
+# plt.xlabel('time')
+# plt.show()
 
 num_features = df.shape[1]
 n = len(df)
@@ -100,7 +100,7 @@ class WindowGenerator():
         f'Label indices: {self.label_indices}',
         f'Label column name(s): {self.label_columns}'])
 
-def plot(self, model=None, plot_col='ema10', max_subplots=5):
+def plot(self, model=None, plot_col=train_df[0].columns[0], max_subplots=5):
   inputs, labels = next(iter(self.test))
   plt.figure(figsize=(12, max_subplots * 3))
   plot_col_index = self.column_indices[plot_col]
@@ -145,7 +145,12 @@ def split_window(self, features):
   # manually. This way the `tf.data.Datasets` are easier to inspect.
   inputs.set_shape([None, self.input_width, None])
   labels.set_shape([None, self.label_width, None])
-  return inputs, labels
+
+  inputMax = tf.reduce_max(inputs, axis=1, keepdims=True)
+  inputMin = tf.reduce_min(inputs, axis=1, keepdims=True)
+  inputMean = tf.reduce_mean(inputs, axis=1, keepdims=True)
+
+  return tf.divide(tf.subtract(inputs, inputMean), tf.subtract(inputMax, inputMin)), tf.divide(tf.subtract(labels, inputMean), tf.subtract(inputMax, inputMin))
 
 WindowGenerator.split_window = split_window
 
@@ -157,7 +162,7 @@ def make_dataset(self, data):
         data=ds,
         targets=None,
         sequence_length=self.total_window_size,
-        sequence_stride=10,
+        sequence_stride=100,
         shuffle=True,
         batch_size=32)
 
@@ -187,11 +192,11 @@ WindowGenerator.val = val
 WindowGenerator.test = test
 
 OUT_STEPS = 100
-multi_window = WindowGenerator(input_width=800,
+multi_window = WindowGenerator(input_width=1000,
                                label_width=OUT_STEPS,
                                shift=OUT_STEPS)
 
-MAX_EPOCHS = 20
+MAX_EPOCHS = 50
 
 def compile_and_fit(model, window, patience=2):
   early_stopping = tf.keras.callbacks.EarlyStopping(monitor='val_loss',
@@ -241,8 +246,9 @@ print('validation')
 multi_val_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.val)
 print('test')
 multi_performance['LSTM'] = multi_lstm_model.evaluate(multi_window.test, verbose=0)
-for col in train_df[0].columns:
-  multi_window.plot(multi_lstm_model, plot_col=col)
+# for col in train_df[0].columns:
+#   multi_window.plot(multi_lstm_model, plot_col=col)
+multi_window.plot(multi_lstm_model)
 
 #tfjs.converters.save_keras_model(multi_lstm_model, 'model')
 print('done')

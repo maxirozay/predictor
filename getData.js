@@ -3,15 +3,15 @@ import fs from 'fs'
 
 async function getData () {
   const data = []
-  const startTime = new Date('2017-09-01').getTime()
-  const endTime = Date.now()
-  for (let time = startTime; time < endTime; time += 18144000000) {
-    for (const interval of intervals) {
-      for (const symbol of symbols) {
-        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval}&endTime=${time}&limit=600`)
-        const json = await res.json()
-        if (json.length === 600) data.push(json)
-      }
+  for (const interval of intervals) {
+    for (const symbol of symbols) {
+      const endTime = Date.now()
+      let res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval.value}&endTime=${endTime - interval.ms * 1000}&limit=1000`)
+      const inputs = await res.json()
+      res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=${interval.value}&endTime=${endTime}&limit=1000`)
+      const labels = await res.json()
+      const total = [...inputs, ...labels]
+      if (total.length === 2000) data.push(total)
     }
   }
 
@@ -24,27 +24,10 @@ async function getData () {
 }
 
 const symbols = [
-  'BTCUSDT',
-  'ETHUSDT',
-  'XRPUSDT',
-  'BNBUSDT',
-  'ADAUSDT',
-  'DOTUSDT',
-  'IOTAUSDT',
-  'MATICUSDT',
-  'CHRUSDT',
-  'CHZUSDT',
-  'VITEUSDT',
-  'SXPUSDT'
+  'BTCUSDT'
 ]
 const intervals = [
-  '5m',
-  '30m',
-  '1h',
-  '6h',
-  '12h',
-  '1d',
-  '1w'
+  { value: '1h', ms: 3600000 }
 ]
 
 getData()
